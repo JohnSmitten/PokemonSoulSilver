@@ -263,7 +263,7 @@
 <body>
 
 <div id="game-container">
-  <img id="room-background" src="" alt="room">
+  <img id="room-background" src="" alt="room" decoding="async">
   <div id="arrow-bar"></div>
 </div>
 
@@ -992,6 +992,54 @@ const dialogueExamineBtn = document.getElementById("dialogue-examine-btn");
 const examineOverlay = document.getElementById("examine-overlay");
 const examineImageEl = document.getElementById("examine-image");
 
+const preloadedImages = new Map();
+
+function preloadImage(src) {
+  if (!src || preloadedImages.has(src)) return;
+  const img = new Image();
+  img.decoding = "async";
+  preloadedImages.set(src, img);
+  img.src = src;
+}
+
+function preloadRoom(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  if (room.background) preloadImage(room.background);
+  (room.interactables || []).forEach(item => {
+    if (item.image) preloadImage(item.image);
+    if (item.examineImage) preloadImage(item.examineImage);
+  });
+}
+
+function preloadNeighbors(roomId) {
+  preloadRoom(roomId);
+  const room = rooms[roomId];
+  if (!room) return;
+  (room.arrows || []).forEach(arrow => preloadRoom(arrow.target));
+}
+
+function requestIdle(cb) {
+  if (window.requestIdleCallback) {
+    requestIdleCallback(cb, { timeout: 2000 });
+  } else {
+    setTimeout(() => cb({ timeRemaining: () => 10 }), 200);
+  }
+}
+
+function preloadEverythingIdle() {
+  const allRoomIds = Object.keys(rooms);
+  let i = 0;
+  function step(deadline) {
+    while (i < allRoomIds.length && (!deadline || deadline.timeRemaining() > 0)) {
+      preloadRoom(allRoomIds[i]);
+      i++;
+    }
+    if (i < allRoomIds.length) requestIdle(step);
+  }
+  requestIdle(step);
+}
+
 function renderRoom(roomId) {
   const room = rooms[roomId];
   if (!room) {
@@ -1001,6 +1049,7 @@ function renderRoom(roomId) {
 
   currentRoomId = roomId;
   roomBackgroundEl.src = room.background;
+  preloadNeighbors(roomId);
 
   closeDialogue();
   hoveredEl = null;
@@ -1020,6 +1069,7 @@ function renderRoom(roomId) {
     const img = document.createElement("img");
     img.src = "Images/ARROW.png";
     img.alt = `${arrow.direction} arrow`;
+    img.decoding = "async";
     el.appendChild(img);
 
     el.addEventListener("click", (e) => {
@@ -1043,13 +1093,17 @@ function renderRoom(roomId) {
     el.className = "interactable";
 
     const img = document.createElement("img");
-    img.src = item.image;
+    img.decoding = "async";
     img.alt = item.id || "interactable";
-    el.appendChild(img);
 
+    const onImgReady = () => buildHitCanvasFromImage(item.image, img);
+    img.addEventListener("load", onImgReady);
+    img.src = item.image;
+    if (img.complete && img.naturalWidth > 0) onImgReady();
+
+    el.appendChild(img);
     gameContainer.appendChild(el);
     item._el = el;
-    loadHitCanvas(item.image);
   });
 
   if (room.onEnter && room.onEnter.dialogue) {
@@ -1081,23 +1135,16 @@ function transitionToRoomWhiteFade(roomId) {
 
 const hitCanvasCache = new Map();
 
-function loadHitCanvas(src) {
-  if (hitCanvasCache.has(src)) return Promise.resolve(hitCanvasCache.get(src));
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      const entry = { ctx, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight };
-      hitCanvasCache.set(src, entry);
-      resolve(entry);
-    };
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
+function buildHitCanvasFromImage(src, imgEl) {
+  if (hitCanvasCache.has(src)) return;
+  const nw = imgEl.naturalWidth, nh = imgEl.naturalHeight;
+  if (!nw || !nh) return;
+  const canvas = document.createElement("canvas");
+  canvas.width = nw;
+  canvas.height = nh;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(imgEl, 0, 0);
+  hitCanvasCache.set(src, { ctx, naturalWidth: nw, naturalHeight: nh });
 }
 
 function isPixelOpaque(item, clickX, clickY, containerW, containerH) {
@@ -1471,7 +1518,9 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+preloadNeighbors(currentRoomId);
 renderRoom(currentRoomId);
+requestIdle(() => preloadEverythingIdle());
 
 </script>
 </body>
