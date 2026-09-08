@@ -1,0 +1,1466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Point & Click Game</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: "Courier New", "Lucida Console", Monaco, monospace;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #000;
+  }
+
+  #room-background {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    background: #222;
+    image-rendering: pixelated;
+  }
+
+  #transition-flash {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 200;
+  }
+
+  #arrow-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%);
+    display: grid;
+    grid-template-columns: repeat(3, 64px);
+    grid-template-rows: repeat(2, 64px);
+    grid-template-areas:
+      ".    up    ."
+      "left down  right";
+    gap: 4px;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .arrow {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    cursor: pointer;
+    pointer-events: auto;
+    image-rendering: pixelated;
+    transition: transform 0.08s steps(2);
+  }
+  .arrow img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+  .arrow-forward { grid-area: up; transform: rotate(0deg); }
+  .arrow-back    { grid-area: down; transform: rotate(180deg); }
+  .arrow-left    { grid-area: left; transform: rotate(-90deg); }
+  .arrow-right   { grid-area: right; transform: rotate(90deg); }
+
+  .arrow:hover { transform: scale(1.1); }
+  .arrow-forward:hover { transform: rotate(0deg) scale(1.1); }
+  .arrow-back:hover    { transform: rotate(180deg) scale(1.1); }
+  .arrow-left:hover    { transform: rotate(-90deg) scale(1.1); }
+  .arrow-right:hover   { transform: rotate(90deg) scale(1.1); }
+
+  .arrow:active { transform: scale(0.9); }
+  .arrow-forward:active { transform: rotate(0deg) scale(0.9); }
+  .arrow-back:active    { transform: rotate(180deg) scale(0.9); }
+  .arrow-left:active    { transform: rotate(-90deg) scale(0.9); }
+  .arrow-right:active   { transform: rotate(90deg) scale(0.9); }
+
+  .interactable {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+    filter: drop-shadow(0 0 0 white) drop-shadow(0 0 3px white);
+    transition: filter 0.1s steps(2);
+  }
+  .interactable img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    image-rendering: pixelated;
+    pointer-events: none;
+  }
+  .interactable.hovered {
+    filter: drop-shadow(0 0 0 white) drop-shadow(0 0 6px white);
+  }
+
+  #dialogue-box {
+    position: absolute;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    width: min(800px, 92vw);
+    height: 110px;
+    background: #ffffff;
+    border: 4px solid #cc6600;
+    outline: 3px solid #662200;
+    box-shadow: 0 0 0 3px #ffcc00, 0 4px 10px rgba(0, 0, 0, 0.7);
+    box-sizing: border-box;
+    display: none;
+    z-index: 110;
+    padding: 6px;
+    cursor: pointer;
+    transition: height 0.1s steps(2);
+  }
+
+  #dialogue-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    border: 2px solid #ffcc00;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    padding: 10px 48px 10px 20px;
+  }
+
+  #dialogue-inner.stacked {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 48px 14px 20px;
+  }
+
+  #dialogue-inner::before, #dialogue-inner::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 16px;
+    background-color: #ffcc00;
+    background-image: radial-gradient(#ffffff 20%, transparent 20%);
+    background-size: 8px 8px;
+  }
+  #dialogue-inner::before { left: 0; border-right: 2px solid #e6b800; }
+  #dialogue-inner::after  { right: 0; border-left: 2px solid #e6b800; }
+
+  #dialogue-text {
+    position: relative;
+    z-index: 1;
+    color: #000;
+    font-weight: bold;
+    font-size: clamp(16px, 2.2vw, 22px);
+    line-height: 1.4;
+    letter-spacing: 0.5px;
+    margin: 0;
+  }
+
+  #dialogue-choices {
+    position: relative;
+    z-index: 1;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+  .choice-btn {
+    background: #ffcc00;
+    color: #000;
+    border: 2px solid #000;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 14px;
+    padding: 6px 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .choice-btn:hover { background: #ffffff; }
+
+  #dialogue-advance-btn {
+    position: absolute;
+    right: 24px;
+    bottom: 12px;
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 14px solid #ffffff;
+    filter: drop-shadow(0px 2px 0px #000);
+    cursor: pointer;
+    z-index: 2;
+    display: none;
+    animation: pokemonBob 0.6s infinite alternate ease-in-out;
+  }
+  @keyframes pokemonBob {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(6px); }
+  }
+
+  #dialogue-examine-btn {
+    position: absolute;
+    right: 50px;
+    bottom: 10px;
+    background: #ffcc00;
+    color: #000;
+    border: 2px solid #000;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 11px;
+    padding: 2px 6px;
+    cursor: pointer;
+    z-index: 2;
+    display: none;
+  }
+
+  #examine-overlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0.94);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    cursor: zoom-out;
+  }
+  #examine-image {
+    width: 100vw;
+    height: 100vh;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+</style>
+</head>
+
+<body>
+
+<div id="game-container">
+  <img id="room-background" src="" alt="room">
+  <div id="arrow-bar"></div>
+</div>
+
+<div id="transition-flash"></div>
+
+<div id="dialogue-box">
+  <div id="dialogue-inner">
+    <div id="dialogue-text"></div>
+    <div id="dialogue-choices"></div>
+    <button id="dialogue-examine-btn">EXAMINE</button>
+    <div id="dialogue-advance-btn" title="Next / Close"></div>
+  </div>
+</div>
+
+<div id="examine-overlay">
+  <img id="examine-image" src="" alt="examine">
+</div>
+
+<script>
+
+const GAME_AUDIO = {
+  interactAudio: null,
+  interactSoundPath: null,
+
+  init() {
+    if (this.interactSoundPath) this.interactAudio = new Audio(this.interactSoundPath);
+  },
+
+  playInteractSound() {
+    if (this.interactAudio) {
+      this.interactAudio.currentTime = 0;
+      this.interactAudio.play().catch(() => {});
+    } else {
+      playFallbackSynth();
+    }
+  }
+};
+GAME_AUDIO.init();
+
+function playFallbackSynth() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.05, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.08);
+  } catch (e) {}
+}
+
+const sfxAudioCache = new Map();
+function playSfxForItem(item) {
+  if (item && item.sfx) {
+    let audio = sfxAudioCache.get(item.sfx);
+    if (!audio) {
+      audio = new Audio(item.sfx);
+      sfxAudioCache.set(item.sfx, audio);
+    }
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  } else {
+    GAME_AUDIO.playInteractSound();
+  }
+}
+
+const TYPING_SPEED_MS = 22;
+
+const inventory = { shedKey: false, dirtyKey: false };
+
+const RADIO_TRACKS = [
+  "Audio/96.7_PORTLAND.mp3",
+  "Audio/VOYAGERS_GOLDEN_RECORD.mp3",
+  "Audio/TENDER_BUTTONS.mp3",
+  "Audio/FIRST_VOICE.mp3",
+  "Audio/LOSER.mp3"
+];
+let radioAudio = new Audio();
+let radioChannelIndex = 0;
+let radioIsPlaying = false;
+radioAudio.preload = "auto";
+radioAudio.loop = true;
+radioAudio.volume = 1.0;
+radioAudio.addEventListener("error", () => {
+  const err = radioAudio.error;
+  console.error("RADIO ERROR — code " + (err ? err.code : "?") + " on src: " + radioAudio.src);
+});
+
+function radioPlay() {
+  const track = RADIO_TRACKS[radioChannelIndex];
+  if (!track) return;
+  const resolvedTrack = new URL(track, document.baseURI).href;
+  if (radioAudio.src !== resolvedTrack) {
+    radioAudio.src = track;
+    radioAudio.load();
+  }
+  radioAudio.loop = true;
+  const playPromise = radioAudio.play();
+  if (playPromise !== undefined) {
+    playPromise.then(() => { radioIsPlaying = true; })
+      .catch(error => { radioIsPlaying = false; console.error("Radio could not play:", error); });
+  }
+}
+function radioNextChannel() {
+  radioChannelIndex = (radioChannelIndex + 1) % RADIO_TRACKS.length;
+  radioPlay();
+}
+function stopRadio() {
+  radioAudio.pause();
+  radioAudio.currentTime = 0;
+  radioIsPlaying = false;
+}
+const DIALOGUE_ACTIONS = { radioPlay, radioNextChannel, stopRadio };
+
+function buildComputerDialogue() {
+  const channelNode = {
+    text: "Change channel?",
+    choices: [
+      {
+        label: "Yes",
+        next: [
+          { text: "You switch stations...", action: "radioNextChannel" },
+          null
+        ]
+      },
+      { label: "No", next: ["The speakers are so quiet.."] },
+      { label: "Turn off", next: [ { text: "The radio clicks off.", action: "stopRadio" } ] }
+    ]
+  };
+  channelNode.choices[0].next[1] = channelNode;
+
+  return [
+    "The only thing available is a radio...",
+    {
+      text: "Play?",
+      choices: [
+        { label: "Yes", next: [ { text: "You turn it on...", action: "radioPlay" }, channelNode ] },
+        { label: "No", next: ["Eh, later."] }
+      ]
+    }
+  ];
+}
+const computerDialogue = buildComputerDialogue();
+
+const rooms = {
+
+  mainRoom: {
+    background: "Images/Rooms/MAIN_ROOM.png",
+    arrows: [
+      { direction: "forward", target: "hallway" },
+      { direction: "back", target: "backRoom" }
+    ],
+    interactables: []
+  },
+
+  backRoom: {
+    background: "Images/Rooms/MAIN_ROOM_BACK.png",
+    arrows: [
+      { direction: "back", target: "mainRoom" }
+    ],
+    interactables: [
+      {
+        id: "mirror",
+        image: "Images/Objects/MAIN_ROOM_BACK_MIRROR.png",
+        examineImage: null,
+        dialogue: ["I can't feel anything", "It's too late for me here."]
+      }
+    ]
+  },
+
+  hallway: {
+    background: "Images/Rooms/MAIN_HALLWAY.png",
+    arrows: [
+      { direction: "back", target: "mainRoom" },
+      { direction: "forward", target: "livingRoom" },
+      { direction: "left", target: "leftHallway" },
+      { direction: "right", target: "rightHallway" }
+    ],
+    interactables: []
+  },
+
+  leftHallway: {
+    background: "Images/Rooms/MAIN_HALLWAY_LEFT.png",
+    arrows: [
+      { direction: "back", target: "hallway" },
+      { direction: "forward", target: "stairs" }
+    ],
+    interactables: []
+  },
+
+  stairs: {
+    background: "Images/Rooms/STAIRWELL.png",
+    arrows: [
+      { direction: "back", target: "leftHallway" },
+      { direction: "forward", target: "balcony" }
+    ],
+    interactables: []
+  },
+
+  balcony: {
+    background: "Images/Rooms/BALCONY.png",
+    arrows: [
+      { direction: "back", target: "stairs" },
+      { direction: "forward", target: "shedPathOne" }
+    ],
+    interactables: []
+  },
+
+  shedPathOne: {
+    background: "Images/Rooms/PATH_SHED_ONE.png",
+    arrows: [
+      { direction: "back", target: "balcony" },
+      { direction: "forward", target: "shedPathTwo" },
+      { direction: "left", target: "labPathOne" }
+    ],
+    interactables: []
+  },
+
+  labPathOne: {
+    background: "Images/Rooms/LAB_PATH_ONE.png",
+    arrows: [
+      { direction: "forward", target: "labPathTwo" },
+      { direction: "back", target: "shedPathOne" }
+    ],
+    interactables: []
+  },
+
+  labPathTwo: {
+    background: "Images/Rooms/LAB_PATH_TWO.png",
+    arrows: [
+      { direction: "forward", target: "labPathThree" },
+      { direction: "back", target: "labPathOne" }
+    ],
+    interactables: []
+  },
+
+  labPathThree: {
+    background: "Images/Rooms/LAB_PATH_THREE.png",
+    arrows: [
+      { direction: "forward", target: "lab" },
+      { direction: "back", target: "labPathTwo" }
+    ],
+    interactables: [
+      {
+        id: "swing",
+        image: "Images/Objects/LAB_PATH_THREE_SWING.png",
+        examineImage: null,
+        dialogue: ["whats this doing here?"]
+      }
+    ]
+  },
+
+  lab: {
+    background: "Images/Rooms/LAB.png",
+    arrows: [
+      { direction: "forward", target: "labForward" },
+      { direction: "left", target: "labLeft" },
+      { direction: "right", target: "labRight" },
+      { direction: "back", target: "labPathThree" }
+    ],
+    interactables: [
+      {
+        id: "door",
+        image: "Images/Objects/LAB_DOOR.png",
+        examineImage: null,
+        dialogue: ["this place looks like it's been abandoned for forever now.."]
+      }
+    ]
+  },
+
+  labRight: {
+    background: "Images/Rooms/LAB_RIGHT.png",
+    arrows: [
+      { direction: "back", target: "lab" }
+    ],
+    interactables: [
+      {
+        id: "casket",
+        image: "Images/Objects/CASKET.png",
+        examineImage: null,
+        dialogue: [
+          "The obituary is scratched out.",
+          "They're dead, but their body looks alive as ever.",
+          "I can't even look at their face anymore...",
+          {
+            text: "Do you regret this?",
+            choices: [
+              { label: "Yes", next: ["I'm so sorry...I'M SO SORRY! I'M SO SORRY I'M SO SORRY I'M A COWARD!"] },
+              { label: "No", next: ["I can't th ink"] }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+
+  labLeft: {
+    background: "Images/Rooms/LAB_LEFT.png",
+    arrows: [
+      { direction: "forward", target: "labLeftForward" },
+      { direction: "back", target: "lab" }
+    ],
+    interactables: []
+  },
+
+  labLeftForward: {
+    background: "Images/Rooms/LAB_LEFT_FORWARD.png",
+    arrows: [
+      { direction: "back", target: "labLeft" }
+    ],
+    interactables: [
+      {
+        id: "man",
+        image: "Images/Objects/LAB_LEFT_FORWARD_MAN.png",
+        examineImage: null,
+        dialogue: ["It has been done.", "OBTAINED SHED KEY!"],
+        repeatDialogue: ["..."],
+        removeOnPickup: true,
+        givesItem: "shedKey"
+      }
+    ]
+  },
+
+  labForward: {
+    background: "Images/Rooms/LAB_FORWARD.png",
+    arrows: [
+      { direction: "back", target: "lab" },
+      { direction: "right", target: "hallOfFameOne" }
+    ],
+    interactables: [
+      {
+        id: "table",
+        image: "Images/Objects/LAB_FORWARD_TABLE.png",
+        examineImage: null,
+        dialogue: [
+          "this couldve had pokemon balls on it..",
+          "waiting for me.",
+          "waiting for someone better than me.",
+          "Its all my fault..."
+        ]
+      },
+      {
+        id: "trophy",
+        image: "Images/Objects/LAB_FORWARD_TROPHY.png",
+        examineImage: null,
+        dialogue: ["Theres nothing to show off now."]
+      }
+    ]
+  },
+
+  hallOfFameOne: {
+    background: "Images/Rooms/HALL_OF_FAME_ONE.png",
+    arrows: [
+      { direction: "right", target: "hallOfFameTwo" },
+      { direction: "left", target: "labForward" }
+    ],
+    interactables: [
+      { id: "Oak", autoExamine: true, image: "Images/Objects/OAK_FRAME.png", examineImage: "Images/Objects/Inspect/OAK.png", dialogue: ["\u201cThe natural\u201d Champion Samuel oak. 1st reigning champion of the indigo league."] },
+      { id: "Blaine", autoExamine: true, image: "Images/Objects/BLAINE_FRAME.png", examineImage: "Images/Objects/Inspect/BLAINE.png", dialogue: ["\u201cThe hothead\u201d Champion Blaine. 2nd reigning champion of the indigo league."] },
+      { id: "Agatha", autoExamine: true, image: "Images/Objects/AGATHA_FRAME.png", examineImage: "Images/Objects/Inspect/AGATHA.png", dialogue: ["\u201cAghastly sight.\u201d Champion Agatha. 3rd reigning champion of the indigo league."] },
+      { id: "Fuji", autoExamine: true, image: "Images/Objects/FUJI_FRAME.png", examineImage: "Images/Objects/Inspect/FUJI.png", dialogue: ["\u201cThe doctor.\u201d Champion Fuji. 4th reigning champion of the indigo league."] },
+      { id: "Giovanni", autoExamine: true, image: "Images/Objects/GIOVANNI_FRAME.png", examineImage: "Images/Objects/Inspect/GIOVANNI.png", dialogue: ["\u201cThe big boss.\u201d Champion Giovanni. 5th reigning champion of the indigo league."] }
+    ]
+  },
+
+  hallOfFameTwo: {
+    background: "Images/Rooms/HALL_OF_FAME_TWO.png",
+    arrows: [
+      { direction: "right", target: "hallOfFameThree" },
+      { direction: "left", target: "hallOfFameOne" }
+    ],
+    interactables: [
+      { id: "Arianna", autoExamine: true, image: "Images/Objects/ARIANNA_FRAME.png", examineImage: "Images/Objects/Inspect/ARIANNA.png", dialogue: ["\u201cSilver eyes.\u201d Champion Ariana. 6th reigning champion of the indigo league."] },
+      { id: "Lance_One", autoExamine: true, image: "Images/Objects/LANCE_ONE_FRAME.png", examineImage: "Images/Objects/Inspect/LANCE_ONE.png", dialogue: ["\u201cThe dragon master.\u201d Champion Lance. 7th reigning champion of the indigo league."] },
+      { id: "Blue", autoExamine: true, image: "Images/Objects/BLUE_FRAME.png", examineImage: "Images/Objects/Inspect/BLUE.png", dialogue: ["\u201cThe phantom champion.\u201d Champion Blue. 8th reigning champion of the indigo league."] },
+      { id: "Red", autoExamine: true, image: "Images/Objects/RED_FRAME.png", examineImage: "Images/Objects/Inspect/RED.png", dialogue: ["\u201cOf red soul.\u201d Champion red. 9th reigning champion of the indigo league."] },
+      { id: "Lance_Two", autoExamine: true, image: "Images/Objects/LANCE_TWO_FRAME.png", examineImage: "Images/Objects/Inspect/LANCE_TWO.png", dialogue: ["\u201cThe dragon master.\u201d Champion Lance. 10th reigning champion of the indigo league."] },
+      { id: "Lyra", autoExamine: true, image: "Images/Objects/LYRA_FRAME.png", examineImage: "Images/Objects/Inspect/LYRA.png", dialogue: ["\u201cOf heart and tandem.\u201d Champion Lyra. 11th reigning champion of the indigo league."] }
+    ]
+  },
+
+  hallOfFameThree: {
+    background: "Images/Rooms/HALL_OF_FAME_THREE.png",
+    arrows: [
+      { direction: "left", target: "hallOfFameTwo" }
+    ],
+    interactables: [
+      {
+        id: "Silver",
+        autoExamine: true,
+        image: "Images/Objects/SILVER_FRAME.png",
+        examineImage: "Images/Objects/Inspect/SILVER.png",
+        dialogue: ["...", "Its too late for me now.", "What title do I hold now?", "Lyra...", "I miss you.", "So", "So", "SO", "MUUUU UUUUCHHHHHH"],
+        repeatDialogue: ["Not again."],
+        disableExamineAfterFirst: true
+      }
+    ]
+  },
+
+  shedPathTwo: {
+    background: "Images/Rooms/PATH_SHED_TWO.png",
+    arrows: [
+      { direction: "back", target: "shedPathOne" },
+      { direction: "forward", target: "shed" }
+    ],
+    interactables: []
+  },
+
+  shed: {
+    background: "Images/Rooms/SHED.png",
+    arrows: [
+      { direction: "back", target: "shedPathTwo" }
+    ],
+    interactables: [
+      {
+        id: "ShedDoor",
+        image: "Images/Objects/SHED_DOOR.png",
+        examineImage: null,
+        requiresItem: "shedKey",
+        lockedDialogue: ["This needs a key...dammit!"],
+        dialogue: ["You use the shed key...", "The door creaks open."],
+        repeatDialogue: ["You head back inside."],
+        leadsTo: "shedInside"
+      }
+    ]
+  },
+
+  shedInside: {
+    background: "Images/Rooms/SHED_INSIDE.png",
+    arrows: [
+      { direction: "back", target: "shed" }
+    ],
+    interactables: [
+      {
+        id: "ShedKey",
+        image: "Images/Objects/SHED_INSIDE_KEY.png",
+        examineImage: null,
+        dialogue: ["another key? It's so..dirty?", "OBTAINED DIRTYKEY!"],
+        repeatDialogue: ["There's nothing else here."],
+        removeOnPickup: true,
+        givesItem: "dirtyKey"
+      }
+    ]
+  },
+
+  rightHallway: {
+    background: "Images/Rooms/MAIN_HALLWAY_RIGHT.png",
+    arrows: [
+      { direction: "back", target: "hallway" },
+      { direction: "forward", target: "bathroom" },
+      { direction: "right", target: "bedroom" }
+    ],
+    interactables: []
+  },
+
+  bedroom: {
+    background: "Images/Rooms/BEDROOM.png",
+    arrows: [
+      { direction: "back", target: "rightHallway" },
+      { direction: "forward", target: "closet" }
+    ],
+    interactables: []
+  },
+
+  closet: {
+    background: "Images/Rooms/CLOSET.png",
+    arrows: [
+      { direction: "back", target: "bedroom" },
+      { direction: "forward", target: "secretPathOne" }
+    ],
+    interactables: [
+      {
+        id: "Hatch",
+        image: "Images/Objects/CLOSET_HATCH.png",
+        examineImage: null,
+        dialogue: ["Where...does this lead to..?"]
+      }
+    ]
+  },
+
+  secretPathOne: {
+    background: "Images/Rooms/SECRET_PATH_ONE.png",
+    arrows: [
+      { direction: "back", target: "closet" },
+      { direction: "forward", target: "secretPathTwo" }
+    ],
+    interactables: []
+  },
+
+  secretPathTwo: {
+    background: "Images/Rooms/SECRET_PATH_TWO.png",
+    arrows: [
+      { direction: "back", target: "secretPathOne" },
+      { direction: "forward", target: "secretPathThree" }
+    ],
+    interactables: []
+  },
+
+  secretPathThree: {
+    background: "Images/Rooms/SECRET_PATH_THREE.png",
+    arrows: [
+      { direction: "back", target: "secretPathTwo" }
+    ],
+    interactables: [
+      {
+        id: "Gate",
+        image: "Images/Objects/SECRET_PATH_THREE_GATE.png",
+        examineImage: null,
+        requiresItem: "dirtyKey",
+        lockedDialogue: ["It needs a key.."],
+        dialogue: ["You use the dirty key...", "The gate creaks open."],
+        repeatDialogue: ["You step back through the gate."],
+        leadsTo: "endingPathOne",
+        transitionEffect: "whiteFade"
+      }
+    ]
+  },
+
+  endingPathOne: {
+    background: "Images/Rooms/ENDING_PATH_ONE.png",
+    onEnter: { dialogue: ["...", "This place feels different."] },
+    arrowDelayMs: 5000,
+    arrows: [
+      { direction: "forward", target: "endingPathTwo" }
+    ],
+    interactables: []
+  },
+
+  endingPathTwo: {
+    background: "Images/Rooms/ENDING_PATH_TWO.png",
+    arrows: [
+      { direction: "forward", target: "endingPathThree" }
+    ],
+    interactables: []
+  },
+
+  endingPathThree: {
+    background: "Images/Rooms/ENDING_PATH_THREE.png",
+    arrows: [
+      { direction: "forward", target: "ending" }
+    ],
+    interactables: []
+  },
+
+  ending: {
+    background: "Images/Rooms/ENDING.png",
+    arrows: [],
+    interactables: [
+      {
+        id: "graffiti",
+        image: "Images/Objects/GRAFFITI.png",
+        examineImage: null,
+        dialogue: ["Its fake.", "Its all been fake."],
+        leadsTo: "LOOP"
+      }
+    ]
+  },
+
+  LOOP: {
+    background: "Images/Rooms/LOOP.png",
+    arrows: [],
+    interactables: []
+  },
+
+  bathroom: {
+    background: "Images/Rooms/BATHROOM.png",
+    arrows: [
+      { direction: "back", target: "rightHallway" }
+    ],
+    interactables: [
+      {
+        id: "shower",
+        image: "Images/Objects/BATHROOM_SHOWER.png",
+        examineImage: null,
+        dialogue: ["no matter how much I try to clean myself, I'm still festering with grime.", "I'm disgusting..."]
+      }
+    ]
+  },
+
+  livingRoom: {
+    background: "Images/Rooms/LIVING_ROOM.png",
+    arrows: [
+      { direction: "back", target: "hallway" },
+      { direction: "left", target: "backLivingRoom" },
+      { direction: "forward", target: "forwardLivingRoom" }
+    ],
+    interactables: [
+      {
+        id: "photo",
+        image: "Images/Objects/LIVING_ROOM_PHOTO.png",
+        examineImage: null,
+        dialogue: ["A depiction of two lovers holding each other in hell."]
+      }
+    ]
+  },
+
+  forwardLivingRoom: {
+    background: "Images/Rooms/LIVING_ROOM_FORWARD.png",
+    arrows: [
+      { direction: "back", target: "livingRoom" },
+      { direction: "left", target: "leftLivingRoom" },
+      { direction: "right", target: "rightLivingRoom" }
+    ],
+    interactables: [
+      {
+        id: "window",
+        image: "Images/Objects/LIVING_ROOM_FORWARD_WINDOW.png",
+        examineImage: null,
+        dialogue: ["It's really dark outside... I can see the silhouette of a building though."]
+      }
+    ]
+  },
+
+  leftLivingRoom: {
+    background: "Images/Rooms/LIVING_ROOM_FORWARD_LEFT.png",
+    arrows: [
+      { direction: "back", target: "forwardLivingRoom" }
+    ],
+    interactables: [
+      {
+        id: "Computer",
+        image: "Images/Objects/LIVING_ROOM_FORWARD_LEFT_COMPUTER.png",
+        examineImage: null,
+        dialogue: computerDialogue
+      }
+    ]
+  },
+
+  rightLivingRoom: {
+    background: "Images/Rooms/LIVING_ROOM_FORWARD_RIGHT.png",
+    arrows: [
+      { direction: "back", target: "forwardLivingRoom" }
+    ],
+    interactables: [
+      {
+        id: "plant",
+        image: "Images/Objects/LIVING_ROOM_FORWARD_RIGHT_PLANT.png",
+        examineImage: null,
+        dialogue: ["It's fake, nothing like this can sustain for this long."]
+      },
+      {
+        id: "bookshelf",
+        image: "Images/Objects/LIVING_ROOM_FORWARD_RIGHT_BOOKSHELF.png",
+        examineImage: null,
+        dialogue: [
+          "There's a book tucked into the shelf.",
+          {
+            text: "Read?",
+            choices: [
+              {
+                label: "Yes",
+                next: [
+                  "All the books are unintellegqble..",
+                  "Except for this one paragraph..",
+                  "Paradoxically, that thought of eternity took away some of my fear.",
+                  "To be trapped for a day, even one day, was brutal.",
+                  "A year was sickening. Any finite amount of time implied an eventual release,",
+                  "and my longing for release hurt me in the gut like chronic appendicitis.",
+                  "But eternity--that was on a different level of conception.",
+                  "It forced the mind to acquiesce entirely and accept the here,",
+                  "the now, and the comfort, such as it was."
+                ]
+              },
+              { label: "No", next: ["Maybe I should leave it alone..."] }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+
+  backLivingRoom: {
+    background: "Images/Rooms/LIVING_ROOM_BACK.png",
+    arrows: [
+      { direction: "back", target: "livingRoom" }
+    ],
+    interactables: [
+      {
+        id: "bottles",
+        image: "Images/Objects/LIVING_ROOM_BACK_BOTTLES.png",
+        examineImage: null,
+        dialogue: ["Looks like someone's been drinking here a lot...", "There's not a drop of liquid left...", "Dammit."]
+      },
+      {
+        id: "fireplace",
+        image: "Images/Objects/LIVING_ROOM_BACK_FIREPLACE.png",
+        examineImage: null,
+        dialogue: ["It's dead. The cold wins again."]
+      }
+    ]
+  }
+
+};
+
+let currentRoomId = "mainRoom";
+let arrowsRevealed = true;
+let arrowRevealTimeout = null;
+
+const gameContainer = document.getElementById("game-container");
+const roomBackgroundEl = document.getElementById("room-background");
+const arrowBar = document.getElementById("arrow-bar");
+const transitionFlash = document.getElementById("transition-flash");
+
+const dialogueBox = document.getElementById("dialogue-box");
+const dialogueInner = document.getElementById("dialogue-inner");
+const dialogueText = document.getElementById("dialogue-text");
+const dialogueChoicesEl = document.getElementById("dialogue-choices");
+const dialogueAdvanceBtn = document.getElementById("dialogue-advance-btn");
+const dialogueExamineBtn = document.getElementById("dialogue-examine-btn");
+
+const examineOverlay = document.getElementById("examine-overlay");
+const examineImageEl = document.getElementById("examine-image");
+
+function renderRoom(roomId) {
+  const room = rooms[roomId];
+  if (!room) {
+    console.warn(`Room "${roomId}" doesn't exist.`);
+    return;
+  }
+
+  currentRoomId = roomId;
+  roomBackgroundEl.src = room.background;
+
+  closeDialogue();
+  hoveredEl = null;
+  gameContainer.style.cursor = "default";
+  gameContainer.querySelectorAll(".interactable").forEach(el => el.remove());
+  arrowBar.innerHTML = "";
+  clearTimeout(arrowRevealTimeout);
+
+  arrowsRevealed = !room.arrowDelayMs;
+  arrowBar.style.transition = "none";
+  arrowBar.style.opacity = arrowsRevealed ? "1" : "0";
+
+  room.arrows.forEach(arrow => {
+    const el = document.createElement("div");
+    el.className = `arrow arrow-${arrow.direction}`;
+
+    const img = document.createElement("img");
+    img.src = "Images/ARROW.png";
+    img.alt = `${arrow.direction} arrow`;
+    el.appendChild(img);
+
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!arrowsRevealed) return;
+      if (arrow.target) {
+        renderRoom(arrow.target);
+      }
+    });
+
+    arrowBar.appendChild(el);
+  });
+
+  room.interactables.forEach(item => {
+    if (item._pickedUp) {
+      item._el = null;
+      return;
+    }
+
+    const el = document.createElement("div");
+    el.className = "interactable";
+
+    const img = document.createElement("img");
+    img.src = item.image;
+    img.alt = item.id || "interactable";
+    el.appendChild(img);
+
+    gameContainer.appendChild(el);
+    item._el = el;
+    loadHitCanvas(item.image);
+  });
+
+  if (room.onEnter && room.onEnter.dialogue) {
+    openRoomEnterDialogue(room);
+  } else if (room.arrowDelayMs) {
+    scheduleArrowReveal(room.arrowDelayMs);
+  }
+}
+
+function scheduleArrowReveal(delayMs) {
+  clearTimeout(arrowRevealTimeout);
+  arrowRevealTimeout = setTimeout(() => {
+    arrowsRevealed = true;
+    arrowBar.style.transition = "opacity 0.6s ease";
+    arrowBar.style.opacity = "1";
+  }, delayMs);
+}
+
+function transitionToRoomWhiteFade(roomId) {
+  transitionFlash.style.transition = "none";
+  transitionFlash.style.opacity = "1";
+  void transitionFlash.offsetWidth;
+  renderRoom(roomId);
+  requestAnimationFrame(() => {
+    transitionFlash.style.transition = "opacity 1.2s ease";
+    transitionFlash.style.opacity = "0";
+  });
+}
+
+const hitCanvasCache = new Map();
+
+function loadHitCanvas(src) {
+  if (hitCanvasCache.has(src)) return Promise.resolve(hitCanvasCache.get(src));
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const entry = { ctx, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight };
+      hitCanvasCache.set(src, entry);
+      resolve(entry);
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function isPixelOpaque(item, clickX, clickY, containerW, containerH) {
+  const hit = hitCanvasCache.get(item.image);
+  if (!hit) return false;
+  const { ctx, naturalWidth: nw, naturalHeight: nh } = hit;
+  if (!nw || !nh) return false;
+
+  const scale = Math.max(containerW / nw, containerH / nh);
+  const offsetX = (nw * scale - containerW) / 2;
+  const offsetY = (nh * scale - containerH) / 2;
+  const imgX = Math.floor((clickX + offsetX) / scale);
+  const imgY = Math.floor((clickY + offsetY) / scale);
+
+  if (imgX < 0 || imgY < 0 || imgX >= nw || imgY >= nh) return false;
+  const alpha = ctx.getImageData(imgX, imgY, 1, 1).data[3];
+  return alpha > 10;
+}
+
+let hoveredEl = null;
+let hoverCheckQueued = false;
+
+gameContainer.addEventListener("click", (e) => {
+  if (dialogueBox.style.display === "block") return;
+  const room = rooms[currentRoomId];
+  if (!room) return;
+  const rect = gameContainer.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  for (let i = room.interactables.length - 1; i >= 0; i--) {
+    const item = room.interactables[i];
+    if (isPixelOpaque(item, x, y, rect.width, rect.height)) {
+      playSfxForItem(item);
+      openDialogue(item);
+      return;
+    }
+  }
+});
+
+gameContainer.addEventListener("mousemove", (e) => {
+  if (hoverCheckQueued) return;
+  hoverCheckQueued = true;
+  requestAnimationFrame(() => {
+    hoverCheckQueued = false;
+    const room = rooms[currentRoomId];
+    if (!room || dialogueBox.style.display === "block") return;
+    const rect = gameContainer.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    let matched = null;
+    for (let i = room.interactables.length - 1; i >= 0; i--) {
+      const item = room.interactables[i];
+      if (isPixelOpaque(item, x, y, rect.width, rect.height)) { matched = item; break; }
+    }
+
+    const matchedEl = matched ? matched._el : null;
+    if (hoveredEl && hoveredEl !== matchedEl) {
+      hoveredEl.classList.remove("hovered");
+      hoveredEl = null;
+    }
+    if (matchedEl) {
+      matchedEl.classList.add("hovered");
+      hoveredEl = matchedEl;
+    }
+    gameContainer.style.cursor = matchedEl ? "pointer" : "default";
+  });
+});
+
+let currentItem = null;
+let currentSequence = null;
+let currentIndex = 0;
+let pendingGiveItem = null;
+let pendingLeadsTo = null;
+let pendingArrowDelay = null;
+
+const typingState = { interval: null, fullText: "", onComplete: null };
+
+function isTyping() {
+  return typingState.interval !== null;
+}
+
+function typeText(text, onComplete) {
+  clearInterval(typingState.interval);
+  typingState.fullText = text;
+  typingState.onComplete = onComplete;
+  dialogueText.textContent = "";
+  let i = 0;
+  typingState.interval = setInterval(() => {
+    i++;
+    dialogueText.textContent = text.slice(0, i);
+    if (i >= text.length) {
+      clearInterval(typingState.interval);
+      typingState.interval = null;
+      if (onComplete) onComplete();
+    }
+  }, TYPING_SPEED_MS);
+}
+
+function skipTyping() {
+  clearInterval(typingState.interval);
+  typingState.interval = null;
+  dialogueText.textContent = typingState.fullText;
+  if (typingState.onComplete) typingState.onComplete();
+}
+
+function openRoomEnterDialogue(room) {
+  currentItem = { dialogue: room.onEnter.dialogue, examineImage: null };
+  pendingGiveItem = null;
+  pendingLeadsTo = null;
+  pendingArrowDelay = room.arrowDelayMs || null;
+
+  dialogueExamineBtn.style.display = "none";
+  dialogueExamineBtn.onclick = null;
+
+  currentSequence = Array.isArray(currentItem.dialogue) ? currentItem.dialogue : [currentItem.dialogue];
+  currentIndex = 0;
+
+  dialogueBox.style.display = "block";
+  showNode(currentSequence[currentIndex]);
+}
+
+function openDialogue(item) {
+  currentItem = item;
+  pendingGiveItem = null;
+  pendingLeadsTo = null;
+  pendingArrowDelay = null;
+
+  const isLocked = item.requiresItem && !inventory[item.requiresItem];
+  const isFirstInteraction = !item._used;
+
+  let sequence;
+
+  if (isLocked) {
+    sequence = item.lockedDialogue || ["It's locked."];
+  } else if (isFirstInteraction) {
+    sequence = item.dialogue || ["..."];
+    item._used = true;
+    if (item.givesItem) pendingGiveItem = item.givesItem;
+    if (item.leadsTo) pendingLeadsTo = item.leadsTo;
+  } else {
+    sequence = item.repeatDialogue || item.dialogue || ["..."];
+    if (item.leadsTo) pendingLeadsTo = item.leadsTo;
+  }
+
+  const examineAllowed =
+    item.examineImage &&
+    !item.autoExamine &&
+    !(item.disableExamineAfterFirst && item._used);
+
+  if (examineAllowed) {
+    dialogueExamineBtn.style.display = "inline-block";
+    dialogueExamineBtn.onclick = (e) => {
+      e.stopPropagation();
+      playSfxForItem(item);
+      openExamine(item.examineImage);
+    };
+  } else {
+    dialogueExamineBtn.style.display = "none";
+    dialogueExamineBtn.onclick = null;
+  }
+
+  currentSequence = Array.isArray(sequence) ? sequence : [sequence];
+  currentIndex = 0;
+
+  dialogueBox.style.display = "block";
+  showNode(currentSequence[currentIndex]);
+
+  const shouldAutoExamine =
+    !isLocked &&
+    item.autoExamine &&
+    item.examineImage &&
+    (isFirstInteraction || !item.disableExamineAfterFirst);
+
+  if (shouldAutoExamine) openExamine(item.examineImage);
+}
+
+function showNode(node) {
+  const text = typeof node === "string" ? node : node.text;
+  const choices = (typeof node === "object" && node.choices) ? node.choices : null;
+  const action = (typeof node === "object" && node.action) ? node.action : null;
+
+  if (action && DIALOGUE_ACTIONS[action]) DIALOGUE_ACTIONS[action]();
+
+  dialogueChoicesEl.style.display = "none";
+  dialogueChoicesEl.innerHTML = "";
+  dialogueAdvanceBtn.style.display = "none";
+  dialogueInner.classList.remove("stacked");
+  dialogueBox.style.height = "110px";
+
+  typeText(text, () => {
+    if (choices) {
+      renderChoices(choices);
+    } else {
+      dialogueAdvanceBtn.style.display = "block";
+    }
+  });
+}
+
+function renderChoices(choices) {
+  dialogueChoicesEl.innerHTML = "";
+  choices.forEach(choice => {
+    const btn = document.createElement("button");
+    btn.className = "choice-btn";
+    btn.textContent = choice.label;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      playSfxForItem(currentItem);
+      if (choice.next) {
+        currentSequence = choice.next;
+        currentIndex = 0;
+        showNode(currentSequence[currentIndex]);
+      } else {
+        closeDialogue();
+      }
+    });
+    dialogueChoicesEl.appendChild(btn);
+  });
+  dialogueChoicesEl.style.display = "flex";
+  dialogueInner.classList.add("stacked");
+  dialogueBox.style.height = (110 + choices.length * 34) + "px";
+}
+
+function handleAdvance() {
+  if (isTyping()) {
+    skipTyping();
+    return;
+  }
+  if (dialogueChoicesEl.style.display === "flex") return;
+  currentIndex++;
+  if (currentSequence && currentIndex < currentSequence.length) {
+    showNode(currentSequence[currentIndex]);
+  } else {
+    closeDialogue();
+  }
+}
+
+function closeDialogue() {
+  clearInterval(typingState.interval);
+  typingState.interval = null;
+
+  if (examineOverlay.style.display === "flex") closeExamine();
+
+  dialogueBox.style.display = "none";
+  dialogueChoicesEl.style.display = "none";
+  dialogueInner.classList.remove("stacked");
+  dialogueBox.style.height = "110px";
+
+  const itemThatWasInteractedWith = currentItem;
+  const giveItem = pendingGiveItem;
+  const leadsTo = pendingLeadsTo;
+  const arrowDelay = pendingArrowDelay;
+
+  currentItem = null;
+  currentSequence = null;
+  currentIndex = 0;
+  pendingGiveItem = null;
+  pendingLeadsTo = null;
+  pendingArrowDelay = null;
+
+  if (giveItem) {
+    inventory[giveItem] = true;
+    const shouldRemove =
+      itemThatWasInteractedWith &&
+      itemThatWasInteractedWith.givesItem === giveItem &&
+      itemThatWasInteractedWith.removeOnPickup !== false;
+
+    if (shouldRemove) {
+      itemThatWasInteractedWith._pickedUp = true;
+      if (itemThatWasInteractedWith._el) {
+        itemThatWasInteractedWith._el.remove();
+        itemThatWasInteractedWith._el = null;
+      }
+    }
+  }
+
+  if (leadsTo) {
+    if (itemThatWasInteractedWith && itemThatWasInteractedWith.transitionEffect === "whiteFade") {
+      transitionToRoomWhiteFade(leadsTo);
+    } else {
+      renderRoom(leadsTo);
+    }
+  } else if (arrowDelay) {
+    scheduleArrowReveal(arrowDelay);
+  }
+}
+
+dialogueBox.addEventListener("click", () => {
+  playSfxForItem(currentItem);
+  handleAdvance();
+});
+dialogueAdvanceBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  playSfxForItem(currentItem);
+  handleAdvance();
+});
+
+const examineCropCache = new Map();
+
+function computeOpaqueBoundingBox(ctx, w, h) {
+  const data = ctx.getImageData(0, 0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    const rowStart = y * w * 4;
+    for (let x = 0; x < w; x++) {
+      const alpha = data[rowStart + x * 4 + 3];
+      if (alpha > 10) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return { x: 0, y: 0, width: w, height: h };
+  return { x: minX, y: minY, width: (maxX - minX + 1), height: (maxY - minY + 1) };
+}
+
+function getCroppedExamineImage(src) {
+  if (examineCropCache.has(src)) return Promise.resolve(examineCropCache.get(src));
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const full = document.createElement("canvas");
+      full.width = w;
+      full.height = h;
+      const fctx = full.getContext("2d");
+      fctx.drawImage(img, 0, 0);
+
+      const bbox = computeOpaqueBoundingBox(fctx, w, h);
+
+      const cropped = document.createElement("canvas");
+      cropped.width = bbox.width;
+      cropped.height = bbox.height;
+      const cctx = cropped.getContext("2d");
+      cctx.drawImage(full, bbox.x, bbox.y, bbox.width, bbox.height, 0, 0, bbox.width, bbox.height);
+
+      const dataUrl = cropped.toDataURL();
+      examineCropCache.set(src, dataUrl);
+      resolve(dataUrl);
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
+}
+
+async function openExamine(imageSrc) {
+  const cropped = await getCroppedExamineImage(imageSrc);
+  examineImageEl.src = cropped;
+  examineOverlay.style.display = "flex";
+}
+function closeExamine() {
+  examineOverlay.style.display = "none";
+}
+examineOverlay.addEventListener("click", (e) => {
+  if (e.target === examineOverlay) {
+    GAME_AUDIO.playInteractSound();
+    closeExamine();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (examineOverlay.style.display === "flex") {
+      closeExamine();
+    } else if (dialogueBox.style.display === "block") {
+      closeDialogue();
+    }
+  }
+});
+
+renderRoom(currentRoomId);
+
+</script>
+</body>
+</html>
