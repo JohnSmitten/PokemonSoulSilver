@@ -22,6 +22,8 @@
     position: relative;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
     overflow: hidden;
     background: #000;
   }
@@ -281,6 +283,16 @@
 </div>
 
 <script>
+
+function setAppHeight() {
+  document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+}
+setAppHeight();
+window.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', setAppHeight);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', setAppHeight);
+}
 
 const GAME_AUDIO = {
   interactAudio: null,
